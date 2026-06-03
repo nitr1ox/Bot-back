@@ -168,15 +168,11 @@ async function startBot(userId, botData) {
 
     // Rotating status
     const moduleLabel = types[0] || 'bot';
-    const cmdLabel    = slash && prefix
-      ? `/${prefixChar}${moduleLabel}`
-      : slash  ? `/${moduleLabel}`
-      : prefix ? `${prefixChar}${moduleLabel}`
-      : moduleLabel;
+    const moduleDisplay = moduleLabel.charAt(0).toUpperCase() + moduleLabel.slice(1);
 
     const statuses = [
-      { text: '✨ Ton bot Discord gratuit — bot.ak-47.fr', type: ActivityType.Streaming, url: 'https://bot.ak-47.fr' },
-      { text: cmdLabel,                                     type: ActivityType.Streaming, url: 'https://bot.ak-47.fr' },
+      { text: '✨ Bot gratuit — bot.ak-47.fr',          type: ActivityType.Streaming, url: 'https://bot.ak-47.fr' },
+      { text: `✨ ${moduleDisplay} — bot.ak-47.fr`,     type: ActivityType.Streaming, url: 'https://bot.ak-47.fr' },
     ];
 
     let idx = 0;
