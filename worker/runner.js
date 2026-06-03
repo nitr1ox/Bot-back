@@ -242,65 +242,57 @@ async function stopBot(botId, userId) {
   console.log(`  ⏹ Bot ${botId} arrêté`);
 }
 
-// ── Watch all users' bots via Firestore realtime listeners
+// ── Watch all users' bots via Firestore collectionGroup listener
 async function watchAllBots() {
-  // Get all user IDs first, then watch each user's bot subcollection
-  const usersSnap = await db.collection('bots').get();
-  for (const userDoc of usersSnap.docs) {
-    watchUserBots(userDoc.id);
-  }
-  // Also watch for new users (new bot created by a user who had none before)
-  db.collection('bots').onSnapshot(snap => {
-    snap.docChanges().forEach(change => {
-      if (change.type === 'added') watchUserBots(change.doc.id);
+  const watched = new Set();
+
+  db.collectionGroup('items').onSnapshot(snap => {
+    snap.docChanges().forEach(async change => {
+      const bot    = change.doc.data();
+      const botId  = bot.id || change.doc.id;
+      const userId = change.doc.ref.parent.parent.id;
+
+      // Ensure per-user watch is active
+      if (!watched.has(userId)) {
+        watched.add(userId);
+      }
+
+      if (change.type === 'removed') {
+        await stopBot(botId, userId);
+        return;
+      }
+
+      const isRunning = clients.has(botId);
+      const shouldRun = bot.status === 'running';
+
+      if (shouldRun && !isRunning) {
+        console.log(`  ▶ Démarrage bot [${bot.name}] (user: ${userId})`);
+        await startBot(userId, { ...bot, id: botId });
+      } else if (!shouldRun && isRunning) {
+        console.log(`  ⏹ Arrêt bot [${bot.name}] (user: ${userId})`);
+        await stopBot(botId, userId);
+      }
     });
+  }, err => {
+    console.error('  ⚠️  Watch error:', err.message);
   });
 }
 
-function watchUserBots(userId) {
-  db.collection('bots').doc(userId).collection('items')
-    .onSnapshot(snap => {
-      snap.docChanges().forEach(async change => {
-        const bot = change.doc.data();
-        const botId = bot.id || change.doc.id;
-
-        if (change.type === 'removed') {
-          await stopBot(botId, userId);
-          return;
-        }
-
-        const isRunning = clients.has(botId);
-        const shouldRun = bot.status === 'running';
-
-        if (shouldRun && !isRunning) {
-          console.log(`  ▶ Démarrage bot [${bot.name}] (user: ${userId})`);
-          await startBot(userId, { ...bot, id: botId });
-        } else if (!shouldRun && isRunning) {
-          console.log(`  ⏹ Arrêt bot [${bot.name}] (user: ${userId})`);
-          await stopBot(botId, userId);
-        }
-      });
-    }, err => {
-      console.error(`  ⚠️  Watch error for user ${userId}:`, err.message);
-    });
-}
 
 // ── Bootstrap: start all bots that are status=running
 async function bootstrap() {
   console.log('\n  🔄 AK-47 Worker — chargement des bots...');
   try {
-    const usersSnap = await db.collection('bots').get();
+    // collectionGroup car Firestore ne crée pas les docs parents auto
+    const botsSnap = await db.collectionGroup('items')
+      .where('status', '==', 'running').get();
     let total = 0;
-    for (const userDoc of usersSnap.docs) {
-      const botsSnap = await db.collection('bots').doc(userDoc.id).collection('items')
-        .where('status', '==', 'running').get();
-      for (const botDoc of botsSnap.docs) {
-        const bot = botDoc.data();
-        await startBot(userDoc.id, { ...bot, id: botDoc.id });
-        total++;
-        // Small delay to avoid rate limits
-        await new Promise(r => setTimeout(r, 500));
-      }
+    for (const botDoc of botsSnap.docs) {
+      const bot    = botDoc.data();
+      const userId = botDoc.ref.parent.parent.id;
+      await startBot(userId, { ...bot, id: botDoc.id });
+      total++;
+      await new Promise(r => setTimeout(r, 500));
     }
     console.log(`  ✅ ${total} bot(s) démarré(s)\n`);
     await watchAllBots();
