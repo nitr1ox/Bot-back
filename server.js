@@ -16,7 +16,14 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/bots', require('./middleware/auth').authMiddleware, require('./routes/bots'));
 app.get('/api/health', (_, res) => res.json({ status: 'ok', uptime: process.uptime() }));
 
-// SPA fallback
-app.get('*', (_, res) => res.sendFile(path.join(__dirname, '../frontend/index.html')));
+// SPA fallback — ne pas écraser les fichiers HTML connus
+app.get('*', (req, res) => {
+  const knownPages = ['/dashboard.html', '/index.html', '/'];
+  if (knownPages.includes(req.path)) {
+    const file = req.path === '/dashboard.html' ? 'dashboard.html' : 'index.html';
+    return res.sendFile(path.join(__dirname, '../frontend', file));
+  }
+  res.sendFile(path.join(__dirname, '../frontend/index.html'));
+});
 
 app.listen(PORT, () => console.log(`\n  ⚡ AK-47 Bot Manager → http://localhost:${PORT}\n`));
