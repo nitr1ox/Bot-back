@@ -119,7 +119,33 @@ async function startBot(userId, botData) {
   // ── READY
   client.once('ready', async () => {
     console.log(`  🤖 [${botData.name}] connecté en tant que ${client.user.tag}`);
-    client.user.setActivity('ak-47.fr', { type: ActivityType.Watching });
+
+    // Rotating status
+    const moduleLabel = types[0] || 'bot';
+    const cmdLabel    = slash && prefix
+      ? `/${prefixChar} ${moduleLabel}`
+      : slash  ? `/ ${moduleLabel}`
+      : prefix ? `${prefixChar} ${moduleLabel}`
+      : moduleLabel;
+
+    const statuses = [
+      { text: 'bot.ak-47.fr',           type: ActivityType.Streaming, url: 'https://bot.ak-47.fr' },
+      { text: 'Free bot — bot.ak-47.fr', type: ActivityType.Watching },
+      { text: cmdLabel,                  type: ActivityType.Playing },
+    ];
+
+    let idx = 0;
+    const rotate = () => {
+      const s = statuses[idx % statuses.length];
+      if (s.type === ActivityType.Streaming) {
+        client.user.setActivity({ name: s.text, type: s.type, url: s.url });
+      } else {
+        client.user.setActivity({ name: s.text, type: s.type });
+      }
+      idx++;
+    };
+    rotate();
+    client._rotateInterval = setInterval(rotate, 15_000);
 
     await db.collection('bots').doc(userId).collection('items').doc(botId).update({
       status:    'running',
@@ -204,6 +230,7 @@ async function stopBot(botId, userId) {
   const entry = clients.get(botId);
   if (!entry) return;
   try {
+    if (entry.client._rotateInterval) clearInterval(entry.client._rotateInterval);
     entry.client.destroy();
   } catch {}
   clients.delete(botId);
