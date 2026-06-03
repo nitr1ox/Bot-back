@@ -283,13 +283,13 @@ async function watchAllBots() {
 async function bootstrap() {
   console.log('\n  🔄 AK-47 Worker — chargement des bots...');
   try {
-    // collectionGroup car Firestore ne crée pas les docs parents auto
-    const botsSnap = await db.collectionGroup('items')
-      .where('status', '==', 'running').get();
+    // collectionGroup sans filtre (pas d'index requis) — on filtre en mémoire
+    const botsSnap = await db.collectionGroup('items').get();
     let total = 0;
     for (const botDoc of botsSnap.docs) {
       const bot    = botDoc.data();
       const userId = botDoc.ref.parent.parent.id;
+      if (bot.status !== 'running') continue;
       await startBot(userId, { ...bot, id: botDoc.id });
       total++;
       await new Promise(r => setTimeout(r, 500));
