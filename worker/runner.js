@@ -93,6 +93,52 @@ async function startBot(userId, botData) {
   client.commands       = new Collection(); // slash
   client.prefixCommands = new Collection(); // prefix
   client.botMeta        = { userId, botId, slash, prefix, prefixChar };
+  // ── Built-in help command (slash + prefix)
+  const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+  const helpSlash = {
+    data: new SlashCommandBuilder()
+      .setName('help')
+      .setDescription('Affiche les commandes disponibles du bot'),
+    async execute(interaction) {
+      const embed = new EmbedBuilder()
+        .setColor(0x2b2d31)
+        .setTitle('📋 Commandes disponibles')
+        .setThumbnail('https://bot.ak-47.fr/logo.png')
+        .setFooter({ text: '✨ Créé gratuitement sur bot.ak-47.fr', iconURL: 'https://bot.ak-47.fr/logo.png' })
+        .setTimestamp();
+      const cmds = [...client.commands.values()].filter(c => c.data.name !== 'help');
+      if (cmds.length > 0) embed.addFields({ name: '⚡ Slash Commands', value: cmds.map(c => `\`/${c.data.name}\` — ${c.data.description}`).join('\n') });
+      const pcmds = [...client.prefixCommands.values()].filter(c => c.name !== 'help');
+      if (pcmds.length > 0) embed.addFields({ name: `🔧 Prefix (\`${prefixChar}\`)`, value: pcmds.map(c => `\`${prefixChar}${c.name}\` — ${c.description || '—'}`).join('\n') });
+      if (cmds.length === 0 && pcmds.length === 0) embed.setDescription('Aucune commande activée sur ce bot.');
+      else embed.setDescription('Voici toutes les commandes de ce bot.');
+      await interaction.reply({ embeds: [embed] });
+    },
+  };
+  const helpPrefix = {
+    name: 'help',
+    aliases: ['h', 'aide'],
+    description: 'Affiche les commandes disponibles',
+    async execute(message) {
+      const embed = new EmbedBuilder()
+        .setColor(0x2b2d31)
+        .setTitle('📋 Commandes disponibles')
+        .setThumbnail('https://bot.ak-47.fr/logo.png')
+        .setFooter({ text: '✨ Créé gratuitement sur bot.ak-47.fr', iconURL: 'https://bot.ak-47.fr/logo.png' })
+        .setTimestamp();
+      const cmds = [...client.commands.values()].filter(c => c.data.name !== 'help');
+      if (cmds.length > 0) embed.addFields({ name: '⚡ Slash Commands', value: cmds.map(c => `\`/${c.data.name}\` — ${c.data.description}`).join('\n') });
+      const pcmds = [...client.prefixCommands.values()].filter(c => c.name !== 'help');
+      if (pcmds.length > 0) embed.addFields({ name: `🔧 Prefix (\`${prefixChar}\`)`, value: pcmds.map(c => `\`${prefixChar}${c.name}\` — ${c.description || '—'}`).join('\n') });
+      if (cmds.length === 0 && pcmds.length === 0) embed.setDescription('Aucune commande activée sur ce bot.');
+      else embed.setDescription('Voici toutes les commandes de ce bot.');
+      await message.reply({ embeds: [embed] });
+    },
+  };
+  client.commands.set('help', helpSlash);
+  client.prefixCommands.set('help', helpPrefix);
+  (helpPrefix.aliases || []).forEach(a => client.prefixCommands.set(a, helpPrefix));
+
 
   // Load modules
   const slashDefs = [];
@@ -123,15 +169,14 @@ async function startBot(userId, botData) {
     // Rotating status
     const moduleLabel = types[0] || 'bot';
     const cmdLabel    = slash && prefix
-      ? `/${prefixChar} ${moduleLabel}`
-      : slash  ? `/ ${moduleLabel}`
-      : prefix ? `${prefixChar} ${moduleLabel}`
+      ? `/${prefixChar}${moduleLabel}`
+      : slash  ? `/${moduleLabel}`
+      : prefix ? `${prefixChar}${moduleLabel}`
       : moduleLabel;
 
     const statuses = [
-      { text: 'bot.ak-47.fr',           type: ActivityType.Streaming, url: 'https://bot.ak-47.fr' },
-      { text: 'Free bot — bot.ak-47.fr', type: ActivityType.Watching },
-      { text: cmdLabel,                  type: ActivityType.Playing },
+      { text: '✨ Ton bot Discord gratuit — bot.ak-47.fr', type: ActivityType.Streaming, url: 'https://bot.ak-47.fr' },
+      { text: cmdLabel,                                     type: ActivityType.Streaming, url: 'https://bot.ak-47.fr' },
     ];
 
     let idx = 0;
