@@ -136,6 +136,7 @@ async function startBot(userId, botData) {
 
     let idx = 0;
     const rotate = () => {
+      if (!client.ws.shards.has(0)) return; // shard pas encore prêt
       const s = statuses[idx % statuses.length];
       if (s.type === ActivityType.Streaming) {
         client.user.setActivity({ name: s.text, type: s.type, url: s.url });
