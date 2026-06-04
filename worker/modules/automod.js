@@ -79,10 +79,11 @@ async function modLog(guild, embed) {
 
 // ── Warn a user
 async function warnUser(message, reason) {
-  const state = getState(message.guild.id);
+  const state  = getState(message.guild.id);
   const userId = message.author.id;
-  const warns = (state.warns.get(userId) || 0) + 1;
+  const warns  = (state.warns.get(userId) || 0) + 1;
   state.warns.set(userId, warns);
+  persistWarns(message.guild.id, null).catch(() => {});
 
   // Delete offending message
   message.delete().catch(() => {});

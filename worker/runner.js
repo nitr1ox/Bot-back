@@ -5,7 +5,10 @@
  */
 
 const { Client, GatewayIntentBits, Partials, Collection, REST, Routes, ActivityType } = require('discord.js');
-const { db } = require('../firebase');
+const { db, admin } = require('../firebase');
+const FieldValue = admin.firestore.FieldValue;
+let decryptToken;
+try { decryptToken = require('../routes/auth').decryptToken; } catch { decryptToken = t => t; }
 
 // ── Active clients map: botId → { client, unsubscribe }
 const clients = new Map();
@@ -46,16 +49,12 @@ async function pushLog(userId, botId, level, msg) {
   } catch {}
 }
 
-// ── Increment command counter
+// ── Increment command counter (atomic — no race condition)
 async function incCmds(userId, botId) {
   try {
-    const ref = db.collection('bots').doc(userId).collection('items').doc(botId);
-    const snap = await ref.get();
-    if (!snap.exists) return;
-    const d = snap.data();
-    await ref.update({
-      cmdCount:   (d.cmdCount  || 0) + 1,
-      totalCmds:  (d.totalCmds || 0) + 1,
+    await db.collection('bots').doc(userId).collection('items').doc(botId).update({
+      cmdCount:  FieldValue.increment(1),
+      totalCmds: FieldValue.increment(1),
     });
   } catch {}
 }
@@ -73,7 +72,8 @@ async function registerSlashCommands(token, clientId, commands) {
 
 // ── Start a single bot
 async function startBot(userId, botData) {
-  const { id: botId, token, types = [], slash, prefix, prefixChar = '!' } = botData;
+  const { id: botId, types = [], slash, prefix, prefixChar = '!' } = botData;
+  const token = decryptToken(botData.token);
 
   if (clients.has(botId)) return; // already running
   if (!token) return;
@@ -93,52 +93,6 @@ async function startBot(userId, botData) {
   client.commands       = new Collection(); // slash
   client.prefixCommands = new Collection(); // prefix
   client.botMeta        = { userId, botId, slash, prefix, prefixChar };
-  // ── Built-in help command (slash + prefix)
-  const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-  const helpSlash = {
-    data: new SlashCommandBuilder()
-      .setName('help')
-      .setDescription('Affiche les commandes disponibles du bot'),
-    async execute(interaction) {
-      const embed = new EmbedBuilder()
-        .setColor(0x2b2d31)
-        .setTitle('📋 Commandes disponibles')
-        .setThumbnail('https://bot.ak-47.fr/logo.png')
-        .setFooter({ text: '✨ Créé gratuitement sur bot.ak-47.fr', iconURL: 'https://bot.ak-47.fr/logo.png' })
-        .setTimestamp();
-      const cmds = [...client.commands.values()].filter(c => c.data.name !== 'help');
-      if (cmds.length > 0) embed.addFields({ name: '⚡ Slash Commands', value: cmds.map(c => `\`/${c.data.name}\` — ${c.data.description}`).join('\n') });
-      const pcmds = [...client.prefixCommands.values()].filter(c => c.name !== 'help');
-      if (pcmds.length > 0) embed.addFields({ name: `🔧 Prefix (\`${prefixChar}\`)`, value: pcmds.map(c => `\`${prefixChar}${c.name}\` — ${c.description || '—'}`).join('\n') });
-      if (cmds.length === 0 && pcmds.length === 0) embed.setDescription('Aucune commande activée sur ce bot.');
-      else embed.setDescription('Voici toutes les commandes de ce bot.');
-      await interaction.reply({ embeds: [embed] });
-    },
-  };
-  const helpPrefix = {
-    name: 'help',
-    aliases: ['h', 'aide'],
-    description: 'Affiche les commandes disponibles',
-    async execute(message) {
-      const embed = new EmbedBuilder()
-        .setColor(0x2b2d31)
-        .setTitle('📋 Commandes disponibles')
-        .setThumbnail('https://bot.ak-47.fr/logo.png')
-        .setFooter({ text: '✨ Créé gratuitement sur bot.ak-47.fr', iconURL: 'https://bot.ak-47.fr/logo.png' })
-        .setTimestamp();
-      const cmds = [...client.commands.values()].filter(c => c.data.name !== 'help');
-      if (cmds.length > 0) embed.addFields({ name: '⚡ Slash Commands', value: cmds.map(c => `\`/${c.data.name}\` — ${c.data.description}`).join('\n') });
-      const pcmds = [...client.prefixCommands.values()].filter(c => c.name !== 'help');
-      if (pcmds.length > 0) embed.addFields({ name: `🔧 Prefix (\`${prefixChar}\`)`, value: pcmds.map(c => `\`${prefixChar}${c.name}\` — ${c.description || '—'}`).join('\n') });
-      if (cmds.length === 0 && pcmds.length === 0) embed.setDescription('Aucune commande activée sur ce bot.');
-      else embed.setDescription('Voici toutes les commandes de ce bot.');
-      await message.reply({ embeds: [embed] });
-    },
-  };
-  client.commands.set('help', helpSlash);
-  client.prefixCommands.set('help', helpPrefix);
-  (helpPrefix.aliases || []).forEach(a => client.prefixCommands.set(a, helpPrefix));
-
 
   // Load modules
   const slashDefs = [];
@@ -168,11 +122,16 @@ async function startBot(userId, botData) {
 
     // Rotating status
     const moduleLabel = types[0] || 'bot';
-    const moduleDisplay = moduleLabel.charAt(0).toUpperCase() + moduleLabel.slice(1);
+    const cmdLabel    = slash && prefix
+      ? `/${prefixChar} ${moduleLabel}`
+      : slash  ? `/ ${moduleLabel}`
+      : prefix ? `${prefixChar} ${moduleLabel}`
+      : moduleLabel;
 
     const statuses = [
-      { text: '✨ Bot gratuit — bot.ak-47.fr',          type: ActivityType.Streaming, url: 'https://bot.ak-47.fr' },
-      { text: `✨ ${moduleDisplay} — bot.ak-47.fr`,     type: ActivityType.Streaming, url: 'https://bot.ak-47.fr' },
+      { text: 'bot.ak-47.fr',           type: ActivityType.Streaming, url: 'https://bot.ak-47.fr' },
+      { text: 'Free bot — bot.ak-47.fr', type: ActivityType.Watching },
+      { text: cmdLabel,                  type: ActivityType.Playing },
     ];
 
     let idx = 0;
@@ -255,11 +214,13 @@ async function startBot(userId, botData) {
   });
 
   // ── LOGIN
+  // Enregistrer avant login pour éviter double-démarrage via watcher
+  clients.set(botId, { client, userId });
   try {
     await client.login(token);
-    clients.set(botId, { client, userId });
   } catch (e) {
     console.error(`  ❌ [${botData.name}] Login failed: ${e.message}`);
+    clients.delete(botId);
     await pushLog(userId, botId, 'err', `Login échoué: ${e.message}`);
     await db.collection('bots').doc(userId).collection('items').doc(botId)
       .update({ status: 'stopped' }).catch(() => {});
@@ -288,31 +249,34 @@ async function watchAllBots() {
   const watched = new Set();
 
   db.collectionGroup('items').onSnapshot(snap => {
-    snap.docChanges().forEach(async change => {
-      const bot    = change.doc.data();
-      const botId  = bot.id || change.doc.id;
-      const userId = change.doc.ref.parent.parent.id;
+    snap.docChanges().forEach(change => {
+      (async () => {
+        try {
+          const bot    = change.doc.data();
+          const botId  = bot.id || change.doc.id;
+          const userId = change.doc.ref.parent.parent.id;
 
-      // Ensure per-user watch is active
-      if (!watched.has(userId)) {
-        watched.add(userId);
-      }
+          if (!watched.has(userId)) watched.add(userId);
 
-      if (change.type === 'removed') {
-        await stopBot(botId, userId);
-        return;
-      }
+          if (change.type === 'removed') {
+            await stopBot(botId, userId);
+            return;
+          }
 
-      const isRunning = clients.has(botId);
-      const shouldRun = bot.status === 'running';
+          const isRunning = clients.has(botId);
+          const shouldRun = bot.status === 'running';
 
-      if (shouldRun && !isRunning) {
-        console.log(`  ▶ Démarrage bot [${bot.name}] (user: ${userId})`);
-        await startBot(userId, { ...bot, id: botId });
-      } else if (!shouldRun && isRunning) {
-        console.log(`  ⏹ Arrêt bot [${bot.name}] (user: ${userId})`);
-        await stopBot(botId, userId);
-      }
+          if (shouldRun && !isRunning) {
+            console.log(`  ▶ Démarrage bot [${bot.name}] (user: ${userId})`);
+            await startBot(userId, { ...bot, id: botId });
+          } else if (!shouldRun && isRunning) {
+            console.log(`  ⏹ Arrêt bot [${bot.name}] (user: ${userId})`);
+            await stopBot(botId, userId);
+          }
+        } catch (err) {
+          console.error('  ⚠️  Watch change error:', err.message);
+        }
+      })();
     });
   }, err => {
     console.error('  ⚠️  Watch error:', err.message);

@@ -1,18 +1,24 @@
 {
   "name": "ak47-bot-manager",
   "version": "1.0.0",
-  "description": "AK-47 Bot Manager — Firebase backend",
+  "description": "AK-47 Bot Manager \u2014 Firebase backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
   "dependencies": {
+    "@discordjs/opus": "^0.9.0",
+    "@discordjs/voice": "^0.17.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "discord.js": "^14.15.3",
     "express": "^4.18.2",
+    "ffmpeg-static": "^5.2.0",
     "firebase-admin": "^12.0.0",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "ytdl-core": "^4.11.5",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.3.1"
   }
 }
